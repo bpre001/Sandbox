@@ -1,0 +1,14 @@
+# R project files
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj.user/
+
+# Output files
+*.pdf
+*.html
+*.docx
+
+# OS files
+.DS_Store
+Thumbs.db
