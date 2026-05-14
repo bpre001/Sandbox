@@ -1,0 +1,280 @@
+---
+title: "Eigshow"
+output:
+  html_document:
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(MASS)
+library(plotly)
+```
+
+## Eigshow, Week 1
+
+One of my all-time favourite demonstrations is the `eigshow` concept from MATLAB.
+A green vector **x** sits on the unit circle; a blue vector **Ax** shows where the
+linear map sends it.  Dragging **x** around traces an ellipse.  Below each matrix
+is an interactive animation: press **Play** (or drag the slider) to sweep **x**
+around the circle and watch **Ax** trace the ellipse.  The animation pauses and
+annotates automatically whenever **Ax** becomes parallel to **x** — that is, when
+an eigenvector is found.
+
+---
+
+```{r eigshow-anim, echo=TRUE}
+# Animate x sweeping the unit circle; Ax traces the ellipse.
+# Pauses at eigenvector angles and labels the eigenvalue.
+eigshow_anim <- function(A, title_str = "", n_steps = 90, pause_n = 20) {
+
+  ev      <- eigen(A)
+  real_ev <- all(Im(ev$values) == 0)
+
+  theta <- seq(0, 2 * pi, length.out = n_steps + 1)[seq_len(n_steps)]
+  dt    <- 2 * pi / n_steps
+
+  # Catalogue each eigenvector direction (both ±v) with a display label
+  eig_cat <- if (real_ev) {
+    do.call(c, lapply(seq_len(ncol(ev$vectors)), function(j) {
+      v   <- Re(ev$vectors[, j])
+      lam <- Re(ev$values[j])
+      lbl <- paste0("λ", j, " = ", sprintf("%.4g", lam),
+                    "  →  eigenvector!")
+      lapply(c(1, -1), function(s) {
+        list(angle = atan2(s * v[2], s * v[1]) %% (2 * pi), label = lbl)
+      })
+    }))
+  } else list()
+
+  nearest_eig <- function(th) {
+    for (ec in eig_cat) {
+      d <- min(abs(th - ec$angle), 2 * pi - abs(th - ec$angle))
+      if (d < 1.5 * dt) return(ec)
+    }
+    NULL
+  }
+
+  step_eig   <- lapply(theta, nearest_eig)
+  step_label <- vapply(step_eig, function(e) if (is.null(e)) "" else e$label,
+                       character(1))
+  is_eig     <- !vapply(step_eig, is.null, logical(1))
+
+  # Expand: repeat eigenvector frames to create a visual pause
+  step_seq <- rep(seq_len(n_steps), times = ifelse(is_eig, pause_n, 1L))
+  n_frames <- length(step_seq)
+
+  x_mat  <- rbind(cos(theta), sin(theta))
+  Ax_mat <- A %*% x_mat
+  lim    <- max(abs(c(x_mat, Ax_mat))) * 1.45
+
+  # Dashed reference lines along each eigenvector (drawn once, always visible)
+  eig_shapes <- if (real_ev) {
+    lapply(seq_len(ncol(ev$vectors)), function(j) {
+      v <- Re(ev$vectors[, j])
+      list(type = "line",
+           x0 = -lim * v[1], y0 = -lim * v[2],
+           x1 =  lim * v[1], y1 =  lim * v[2],
+           line  = list(color = "rgba(100,100,100,0.40)",
+                        width = 1.3, dash = "dash"),
+           layer = "below")
+    })
+  } else list()
+
+  # One plotly frame per entry in step_seq
+  all_frames <- lapply(seq_len(n_frames), function(f) {
+    i    <- step_seq[f]
+    is_h <- is_eig[i]
+    ix   <- seq_len(i)
+
+    cx  <- x_mat[1, i];  cy  <- x_mat[2, i]
+    cAx <- Ax_mat[1, i]; cAy <- Ax_mat[2, i]
+
+    # Thicker, darker vectors at eigenvector frames
+    vw <- if (is_h) 4   else 2
+    xc <- if (is_h) "#005a32" else "#33a02c"
+    Ac <- if (is_h) "#08306b" else "#1f78b4"
+
+    annot <- if (is_h) {
+      list(list(
+        x = -lim * 0.93, y = lim * 0.90, xanchor = "left",
+        showarrow = FALSE,
+        text = paste0("<b>", step_label[i], "</b>"),
+        font = list(color = "#cb181d", size = 15)
+      ))
+    } else list()
+
+    list(
+      name   = as.character(f),
+      data   = list(
+        list(x = x_mat[1, ix],  y = x_mat[2, ix]),        # trace 0: x trail
+        list(x = Ax_mat[1, ix], y = Ax_mat[2, ix]),       # trace 1: Ax trail
+        list(x = c(0, cx),  y = c(0, cy),                 # trace 2: x vector
+             line   = list(color = xc, width = vw),
+             marker = list(size = c(2, 12), color = xc)),
+        list(x = c(0, cAx), y = c(0, cAy),                # trace 3: Ax vector
+             line   = list(color = Ac, width = vw),
+             marker = list(size = c(2, 12), color = Ac))
+      ),
+      layout = list(annotations = annot)
+    )
+  })
+
+  # Base figure — four empty traces whose structure matches frame updates
+  fig <- plot_ly() |>
+    add_trace(x = numeric(0), y = numeric(0),
+              type = "scatter", mode = "lines", name = "x trail",
+              line = list(color = "#33a02c", width = 1.2)) |>
+    add_trace(x = numeric(0), y = numeric(0),
+              type = "scatter", mode = "lines", name = "Ax trail",
+              line = list(color = "#1f78b4", width = 1.2)) |>
+    add_trace(x = numeric(0), y = numeric(0),
+              type = "scatter", mode = "lines+markers", name = "x",
+              line   = list(color = "#33a02c", width = 2),
+              marker = list(size = 10, color = "#33a02c")) |>
+    add_trace(x = numeric(0), y = numeric(0),
+              type = "scatter", mode = "lines+markers", name = "Ax",
+              line   = list(color = "#1f78b4", width = 2),
+              marker = list(size = 10, color = "#1f78b4"))
+
+  fig$x$frames <- all_frames
+
+  fig |>
+    layout(
+      title  = list(text = title_str, x = 0.04, font = list(size = 14)),
+      xaxis  = list(range = c(-lim, lim), zeroline = TRUE, showgrid = FALSE,
+                    scaleanchor = "y", scaleratio = 1, title = ""),
+      yaxis  = list(range = c(-lim, lim), zeroline = TRUE, showgrid = FALSE,
+                    title = ""),
+      shapes = eig_shapes,
+      legend = list(orientation = "h", y = -0.10),
+      margin = list(t = 50, b = 100),
+      updatemenus = list(list(
+        type = "buttons", direction = "left",
+        x = 0.04, y = -0.08, xanchor = "left",
+        buttons = list(
+          list(label  = "&#9654;  Play",
+               method = "animate",
+               args   = list(NULL, list(
+                 fromcurrent = TRUE,
+                 frame       = list(duration = 60, redraw = FALSE),
+                 transition  = list(duration = 0)
+               ))),
+          list(label  = "&#9646;&#9646;  Pause",
+               method = "animate",
+               args   = list(list(), list(
+                 mode       = "immediate",
+                 frame      = list(duration = 0, redraw = FALSE),
+                 transition = list(duration = 0)
+               )))
+        )
+      ))
+    ) |>
+    animation_slider(
+      currentvalue = list(prefix = "Step ", font = list(size = 11)),
+      pad          = list(t = 55)
+    )
+}
+```
+
+---
+
+## The First Matrix
+
+When you start `eigshow` in MATLAB, a 2-by-2 matrix appears in the title bar.
+There is a green vector **x** and a blue vector **Ax**, the image of **x** under
+the map induced by **A**.  The default values are:
+
+```{r matrix-1}
+A1 <- rbind(c(1, 3), c(4, 2)) / 4
+x  <- c(1, 0)
+
+fractions(A1)
+x
+fractions(A1 %*% x)
+```
+
+### Animation
+
+Press **Play**.  The green dot traces the unit circle; the blue dot traces the
+ellipse.  The dashed grey lines show the two eigenvector directions from the
+start.  The animation pauses and turns red whenever **Ax** aligns with **x**.
+
+```{r anim-1, out.width="100%"}
+eigshow_anim(A1, title_str = "A = [1 3; 4 2] / 4")
+```
+
+### Ellipse
+
+As **x** sweeps the unit circle, **Ax** traces an ellipse.  This matrix is *not*
+symmetric, so the eigenvectors are **not** the major/minor axes of the ellipse.
+A symmetric matrix would align them.
+
+### Eigenvectors
+
+One eigenvector sits in the first/third quadrant (≈ 60° from horizontal); the
+blue vector is *longer* than the green, so the eigenvalue is greater than 1.
+The other is found when **Ax** points *opposite* to **x** (negative eigenvalue),
+in the second/fourth quadrant at ≈ 45°.
+
+```{r eigen-1}
+fractions(eigen(A1)$values)
+fractions(eigen(A1)$vectors)
+```
+
+---
+
+## A Second Matrix
+
+Swap the top two elements of the first matrix.
+
+```{r matrix-2}
+A2 <- rbind(c(3, 1), c(4, 2)) / 4
+fractions(A2)
+```
+
+```{r anim-2, out.width="100%"}
+eigshow_anim(A2, title_str = "A = [3 1; 4 2] / 4")
+```
+
+The ellipse is noticeably more elongated.  Both eigenvalues are positive, so
+**Ax** goes around the ellipse in the *same* direction as **x** around the
+circle.  (The first matrix had one negative eigenvalue; **x** and **Ax** then
+travel in opposite senses.)
+
+```{r eigen-2}
+eigen(A2)$values
+```
+
+---
+
+## A Third Matrix
+
+Swap the bottom two elements of the first matrix and flip one sign.
+
+```{r matrix-3}
+A3 <- rbind(c(3, 1), c(-2, 4)) / 4
+fractions(A3)
+```
+
+```{r anim-3, out.width="100%"}
+eigshow_anim(A3, title_str = "A = [3 1; -2 4] / 4")
+```
+
+No pause, no annotation, no dashed lines — the animation just keeps going.
+Trying to make **Ax** parallel to **x** is impossible on the real plane.
+This matrix has no real eigenvalues or eigenvectors; they are complex.
+
+```{r eigen-3}
+eigen(A3)$values   # complex conjugate pair
+```
+
+---
+
+## More Later
+
+Further examples will appear in the next set of notes.
+
+---
+
+*Adapted from Cleve Moler, © 2013 The MathWorks, Inc.*
